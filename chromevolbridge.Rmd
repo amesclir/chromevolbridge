@@ -1,0 +1,316 @@
+---
+title: "chromevolbridge"
+author: "Marcial Escudero"
+date: "2024-09-18"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(gridExtra)
+
+# Assume the dataframe is called df
+df <- read.csv("chromevolratestime.csv")
+df
+df <- df[!(df$Clade %in% c("Poaceae", "Cyperaceae")), ]
+```
+
+
+```{r}
+
+library(ggplot2)
+library(gridExtra)
+
+# Function to calculate model metrics for linear models
+linear_model_fit <- function(model, data) {
+  rss <- sum(residuals(model)^2)  # Residual Sum of Squares
+  aic <- AIC(model)               # AIC
+  r2 <- summary(model)$r.squared # R-squared
+  p_value <- summary(model)$coefficients[2, 4]  # p-value of the slope
+  return(c(RSS = rss, AIC = aic, R2 = r2, P_value = p_value))
+}
+
+# Function to calculate model metrics for exponential models
+exp_model_fit <- function(model) {
+  rss <- sum(residuals(model)^2)  # Residual Sum of Squares
+  aic <- AIC(model)               # AIC
+  # Calculate R² for exponential models
+  fitted_values <- predict(model)
+  residuals <- residuals(model)
+  ss_total <- sum((fitted_values - mean(fitted_values))^2)
+  r2 <- 1 - (rss / ss_total)      # R-squared
+  # p-values for parameters
+  summary_model <- summary(model)
+  p_values <- summary_model$coefficients[, "Pr(>|t|)"]
+  return(c(RSS = rss, AIC = aic, R2 = r2, P_value_A = p_values["a"], P_value_B = p_values["b"]))
+}
+
+# A: Linear and exponential models for Crown age vs. dysploidy rate
+lin_model_A <- lm(best.model.dysploidy.rate ~ Crown.age..MY., data = df)
+exp_model_A <- nls(best.model.dysploidy.rate ~ a * exp(b * Crown.age..MY.), 
+                   data = df, start = list(a = 1, b = 0.01))
+
+# B: Linear and exponential models for Crown age vs. polyploidy rate
+lin_model_B <- lm(best.model.polyploidy.rate ~ Crown.age..MY., data = df)
+exp_model_B <- nls(best.model.polyploidy.rate ~ a * exp(b * Crown.age..MY.), 
+                   data = df, start = list(a = 1, b = 0.01))
+
+# Remove rows where rates are zero for log models
+df_log_C <- df[df$best.model.dysploidy.rate > 0, ]
+df_log_D <- df[df$best.model.polyploidy.rate > 0, ]
+
+# C: Log-transformed data, fitting linear models
+lin_model_C <- lm(log(best.model.dysploidy.rate) ~ log(Crown.age..MY.), data = df_log_C)
+lin_model_D <- lm(log(best.model.polyploidy.rate) ~ log(Crown.age..MY.), data = df_log_D)
+
+# Calculate metrics for linear models (A and B)
+fit_results_linear <- data.frame(
+  Model = c("Linear A", "Linear B"),
+  RSS = c(linear_model_fit(lin_model_A, df)["RSS"], linear_model_fit(lin_model_B, df)["RSS"]),
+  AIC = c(linear_model_fit(lin_model_A, df)["AIC"], linear_model_fit(lin_model_B, df)["AIC"]),
+  R2 = c(linear_model_fit(lin_model_A, df)["R2"], linear_model_fit(lin_model_B, df)["R2"]),
+  P_value = c(linear_model_fit(lin_model_A, df)["P_value"], linear_model_fit(lin_model_B, df)["P_value"])
+)
+
+# Calculate metrics for exponential models (A and B)
+fit_results_exp <- data.frame(
+  Model = c("Exponential A", "Exponential B"),
+  RSS = c(exp_model_fit(exp_model_A)["RSS"], exp_model_fit(exp_model_B)["RSS"]),
+  AIC = c(exp_model_fit(exp_model_A)["AIC"], exp_model_fit(exp_model_B)["AIC"]),
+  R2 = c(NA, NA),  # R² is NA for exponential models
+  P_value = c(NA, NA)  # p-values are NA for exponential models
+)
+
+# Calculate metrics for linear models (C and D)
+fit_results_linear_CD <- data.frame(
+  Model = c("Log-Linear C", "Log-Linear D"),
+  RSS = c(linear_model_fit(lin_model_C, df_log_C)["RSS"], linear_model_fit(lin_model_D, df_log_D)["RSS"]),
+  AIC = c(linear_model_fit(lin_model_C, df_log_C)["AIC"], linear_model_fit(lin_model_D, df_log_D)["AIC"]),
+  R2 = c(linear_model_fit(lin_model_C, df_log_C)["R2"], linear_model_fit(lin_model_D, df_log_D)["R2"]),
+  P_value = c(linear_model_fit(lin_model_C, df_log_C)["P_value"], linear_model_fit(lin_model_D, df_log_D)["P_value"])
+)
+
+# Display the results
+print("Linear and Exponential Models for A and B:")
+print(fit_results_linear)
+print(fit_results_exp)
+
+print("Linear Models for C and D:")
+print(fit_results_linear_CD)
+
+
+```
+
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+# Calculate the range of log-transformed rates for y-axis limits
+y_lim_dysploidy <- c(
+  min(log(df$best.model.dysploidy.rate[df$best.model.dysploidy.rate > 0]), na.rm = TRUE),
+  max(log(df$best.model.dysploidy.rate[df$best.model.dysploidy.rate > 0]), na.rm = TRUE)
+)
+
+y_lim_polyploidy <- c(
+  min(log(df$best.model.polyploidy.rate[df$best.model.polyploidy.rate > 0]), na.rm = TRUE),
+  max(log(df$best.model.polyploidy.rate[df$best.model.polyploidy.rate > 0]), na.rm = TRUE)
+)
+
+# Extend the lower limit to -7.5
+y_lim_dysploidy[1] <- min(y_lim_dysploidy[1], -7.5)
+y_lim_polyploidy[1] <- min(y_lim_polyploidy[1], -7.5)
+
+# A - Crown age vs. dysploidy rate with exponential model
+plotA <- ggplot(df, aes(x = Crown.age..MY., y = best.model.dysploidy.rate)) +
+  geom_point(color = "#FFA07A", size = 2) +  # Light orange with smaller size
+  geom_smooth(method = "nls", formula = y ~ a * exp(b * x), 
+              method.args = list(start = list(a = 1, b = 0.01)),
+              se = FALSE, color = "#013A63") +  # Marine blue
+  labs(x = "Crown age (MY)", y = "Dysploidy rate") +
+  theme_minimal(base_size = 14) +
+  ggtitle("A")
+
+# B - Crown age vs. polyploidy rate with exponential model
+plotB <- ggplot(df, aes(x = Crown.age..MY., y = best.model.polyploidy.rate)) +
+  geom_point(color = "#FFA07A", size = 2) +  # Light orange with smaller size
+  geom_smooth(method = "nls", formula = y ~ a * exp(b * x), 
+              method.args = list(start = list(a = 1, b = 0.01)),
+              se = FALSE, color = "#013A63") +  # Marine blue
+  labs(x = "Crown age (MY)", y = "Polyploidy rate") +
+  theme_minimal(base_size = 14) +
+  ggtitle("B")
+
+# C - Log-log Crown age vs. dysploidy rate
+plotC <- ggplot(df_log_C, aes(x = log(Crown.age..MY.), y = log(best.model.dysploidy.rate))) +
+  geom_point(color = "#FFA07A", size = 2) +  # Light orange with smaller size
+  geom_smooth(method = "lm", color = "#013A63", se = FALSE) +  # Marine blue
+  labs(x = "log(Crown age (MY))", y = "log(Dysploidy rate)") +
+  theme_minimal(base_size = 14) +
+  ggtitle("C") +
+  theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))  # Adjust plot margins
+
+# D - Log-log Crown age vs. polyploidy rate
+plotD <- ggplot(df_log_D, aes(x = log(Crown.age..MY.), y = log(best.model.polyploidy.rate))) +
+  geom_point(color = "#FFA07A", size = 2) +  # Light orange with smaller size
+  geom_smooth(method = "lm", color = "#013A63", se = FALSE) +  # Marine blue
+  labs(x = "log(Crown age (MY))", y = "log(Polyploidy rate)") +
+  theme_minimal(base_size = 14) +
+  ggtitle("D") +
+  theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))  # Adjust plot margins
+
+# Arrange the four plots
+grid.arrange(plotA, plotB, plotC, plotD, ncol = 2)
+
+
+
+```
+
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+# Function to calculate the model metrics for linear and exponential models
+model_fit <- function(model, data) {
+  # For linear models
+  if (inherits(model, "lm")) {
+    rss <- sum(residuals(model)^2)  # Residual Sum of Squares
+    aic <- AIC(model)               # AIC
+    r2 <- summary(model)$r.squared # R-squared
+    p_value <- summary(model)$coefficients[2, 4]  # p-value of the slope
+  } else {
+    # For non-linear models
+    rss <- sum(residuals(model)^2)  # Residual Sum of Squares
+    aic <- AIC(model)               # AIC
+    r2 <- NA  # R-squared is not directly available for non-linear models
+    p_value <- NA  # p-value is not directly available for non-linear models
+  }
+  return(c(RSS = rss, AIC = aic, R2 = r2, P_value = p_value))
+}
+
+# Function to calculate the model metrics for exponential models
+exp_model_fit <- function(model) {
+  rss <- sum(residuals(model)^2)  # Residual Sum of Squares
+  aic <- AIC(model)               # AIC
+  r2 <- NA  # R-squared is not available for non-linear models
+  p_value <- NA  # p-value is not directly available for non-linear models
+  return(c(RSS = rss, AIC = aic, R2 = r2, P_value = p_value))
+}
+
+# A: Linear and exponential models for Crown age vs. loss rate
+lin_model_A <- lm(best.model.loss.rate ~ Crown.age..MY., data = df)
+exp_model_A <- nls(best.model.loss.rate ~ a * exp(b * Crown.age..MY.), 
+                   data = df, start = list(a = 1, b = 0.01))
+
+# B: Linear and exponential models for Crown age vs. gain rate
+lin_model_B <- lm(best.model.gain.rate ~ Crown.age..MY., data = df)
+exp_model_B <- nls(best.model.gain.rate ~ a * exp(b * Crown.age..MY.), 
+                   data = df, start = list(a = 1, b = 0.01))
+
+# Remove rows where rates are zero for log models
+df_log_C <- df[df$best.model.loss.rate > 0, ]
+df_log_D <- df[df$best.model.gain.rate > 0, ]
+
+# C: Log-transformed data, fitting linear models
+lin_model_C <- lm(log(best.model.loss.rate) ~ log(Crown.age..MY.), data = df_log_C)
+
+# D: Log-transformed data, fitting linear models
+lin_model_D <- lm(log(best.model.gain.rate) ~ log(Crown.age..MY.), data = df_log_D)
+
+# Create results for exponential models
+fit_results_exp <- data.frame(
+  Model = c("Exponential A", "Exponential B"),
+  RSS = c(exp_model_fit(exp_model_A)["RSS"], exp_model_fit(exp_model_B)["RSS"]),
+  AIC = c(exp_model_fit(exp_model_A)["AIC"], exp_model_fit(exp_model_B)["AIC"]),
+  R2 = c(exp_model_fit(exp_model_A)["R2"], exp_model_fit(exp_model_B)["R2"]),
+  P_value = c(exp_model_fit(exp_model_A)["P_value"], exp_model_fit(exp_model_B)["P_value"])
+)
+
+# Create results for linear models (C and D)
+fit_results_linear_CD <- data.frame(
+  Model = c("Log-Linear C", "Log-Linear D"),
+  RSS = c(model_fit(lin_model_C, df_log_C)["RSS"], model_fit(lin_model_D, df_log_D)["RSS"]),
+  AIC = c(model_fit(lin_model_C, df_log_C)["AIC"], model_fit(lin_model_D, df_log_D)["AIC"]),
+  R2 = c(model_fit(lin_model_C, df_log_C)["R2"], model_fit(lin_model_D, df_log_D)["R2"]),
+  P_value = c(model_fit(lin_model_C, df_log_C)["P_value"], model_fit(lin_model_D, df_log_D)["P_value"])
+)
+
+# Display the results for linear and exponential models (A and B)
+print("Linear and Exponential Models for A and B:")
+print(model_fit(lin_model_A, df))
+print(model_fit(lin_model_B, df))
+print(fit_results_exp)
+
+# Display the results for linear models (C and D)
+print("Linear Models for C and D:")
+print(fit_results_linear_CD)
+
+
+```
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+# Calculate the range of log-transformed rates for y-axis limits
+y_lim_loss <- c(
+  min(log(df$best.model.loss.rate[df$best.model.loss.rate > 0]), na.rm = TRUE),
+  max(log(df$best.model.loss.rate[df$best.model.loss.rate > 0]), na.rm = TRUE)
+)
+
+y_lim_gain <- c(
+  min(log(df$best.model.gain.rate[df$best.model.gain.rate > 0]), na.rm = TRUE),
+  max(log(df$best.model.gain.rate[df$best.model.gain.rate > 0]), na.rm = TRUE)
+)
+
+# Extend the lower limit to -7.5
+y_lim_loss[1] <- min(y_lim_loss[1], -7.5)
+y_lim_gain[1] <- min(y_lim_gain[1], -7.5)
+
+# A - Crown age vs. loss rate with exponential model
+plotA <- ggplot(df, aes(x = Crown.age..MY., y = best.model.loss.rate)) +
+  geom_point(color = "#FFA07A", size = 2) +  # Light orange with smaller size
+  geom_smooth(method = "nls", formula = y ~ a * exp(b * x), 
+              method.args = list(start = list(a = 1, b = 0.01)),
+              se = FALSE, color = "#013A63") +  # Marine blue
+  labs(x = "Crown age (MY)", y = "Loss rate") +
+  theme_minimal(base_size = 14) +
+  ggtitle("A")
+
+# B - Crown age vs. gain rate with exponential model
+plotB <- ggplot(df, aes(x = Crown.age..MY., y = best.model.gain.rate)) +
+  geom_point(color = "#FFA07A", size = 2) +  # Light orange with smaller size
+  geom_smooth(method = "nls", formula = y ~ a * exp(b * x), 
+              method.args = list(start = list(a = 1, b = 0.01)),
+              se = FALSE, color = "#013A63") +  # Marine blue
+  labs(x = "Crown age (MY)", y = "Gain rate") +
+  theme_minimal(base_size = 14) +
+  ggtitle("B")
+
+# C - Log-log Crown age vs. loss rate
+plotC <- ggplot(df_log_C, aes(x = log(Crown.age..MY.), y = log(best.model.loss.rate))) +
+  geom_point(color = "#FFA07A", size = 2) +  # Light orange with smaller size
+  geom_smooth(method = "lm", color = "#013A63", se = FALSE) +  # Marine blue
+  labs(x = "log(Crown age (MY))", y = "log(Loss rate)") +
+  theme_minimal(base_size = 14) +
+  ggtitle("C") +
+  theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))  # Adjust plot margins
+
+# D - Log-log Crown age vs. gain rate
+plotD <- ggplot(df_log_D, aes(x = log(Crown.age..MY.), y = log(best.model.gain.rate))) +
+  geom_point(color = "#FFA07A", size = 2) +  # Light orange with smaller size
+  geom_smooth(method = "lm", color = "#013A63", se = FALSE) +  # Marine blue
+  labs(x = "log(Crown age (MY))", y = "log(Gain rate)") +
+  theme_minimal(base_size = 14) +
+  ggtitle("D") +
+  theme(plot.margin = unit(c(1, 1, 1, 1), "cm"))  # Adjust plot margins
+
+# Arrange the four plots
+grid.arrange(plotA, plotB, plotC, plotD, ncol = 2)
+
+```
+
